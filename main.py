@@ -41,9 +41,9 @@ class Cache:
         print("Cache initialized")
 
     def get_record_by_slot(self, slot):
-        for i in self.cache:
-            if i.slot == slot:
-                return i
+        for record in self.cache:
+            if record.slot == slot:
+                return record
         return None
 
     def get_block_from_memory(self, address):
