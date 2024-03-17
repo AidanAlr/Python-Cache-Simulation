@@ -27,6 +27,7 @@ def search_cache_for_slot_and_tag(cache, slot, tag):
 
 
 class Cache:
+
     # Direct Mapped Cache
     # Block size is 16 bytes
     # 16 slots in the cache
@@ -37,7 +38,7 @@ class Cache:
             self.main_memory = main_memory
 
         self.slots = slots
-        self.cache = [Record(i, 0, 0, Block(block=None)) for i in range(0, slots)]
+        self.cache = [Record(slot=i, valid=0, tag=0, data=Block()) for i in range(0, slots)]
         print("Cache initialized")
 
     def get_record_by_slot(self, slot):
@@ -54,7 +55,6 @@ class Cache:
         return block
 
     def read(self, address):
-        # NEED TO ADD WRITE BACK FUNCTIONALITY FOR DIRTY BITS
         offset = get_offset(address)
         slot = get_slot(address)
         tag = get_tag(address)
@@ -67,18 +67,18 @@ class Cache:
 
         print(f"Read {hex(address)} -> tag={hex(tag)}, slot={hex(slot)}, offset={hex(offset)} ({cache_hit_str})")
 
-        if record.dirty:
-            print("Dirty bit found in slot: ", hex(slot))
-            self.write_block_to_memory(address, record.data.block)
-            record.dirty = 0
-
         if cache_hit_str == "Cache hit":
             print("Data: ", hex(record.data.block[offset]))
             return
 
         else:
-            block_starting_address = address - offset
-            print(f"Retrieving block starting at {hex(block_starting_address)} from memory...")
+
+            if record.dirty:
+                print("Dirty bit found in slot: ", hex(slot))
+                self.write_block_to_memory(address, record.data.block)
+                record.dirty = 0
+
+            print(f"Retrieving block starting at {hex(address - offset)} from memory...")
             block_to_add_to_cache = Block(block=self.get_block_from_memory(address))
             record.data = block_to_add_to_cache
             record.tag = tag
