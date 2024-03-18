@@ -1,6 +1,14 @@
 import pandas as pd
 
 
+def get_address_to_write(tag, slot, offset):
+    comp = [tag, slot, offset]
+    comp = [str(hex(i))[2:] for i in comp]
+    address_to_write = "".join(comp)
+    address_to_write = int(address_to_write, 16)
+    return address_to_write
+
+
 def initialize_memory(size=0x7FF):
     memory = [i % 0x100 for i in range(size + 1)]
     return memory
@@ -18,31 +26,27 @@ def get_tag(address):
     return (address & 0b111100000000) >> 8
 
 
-def search_cache_for_slot_and_tag(cache, slot, tag):
-    for i in cache.cache:
-        if i.slot == slot:
-            if i.tag == tag:
-                return i
-    return None
+def get_tag_slot_offset(address):
+    offset = get_offset(address)
+    slot = get_slot(address)
+    tag = get_tag(address)
+    return tag, slot, offset
 
 
 class Cache:
-
     # Direct Mapped Cache
     # Block size is 16 bytes
     # 16 slots in the cache
-
-    def __init__(self, slots=16, main_memory=None):
+    def __init__(self, number_of_slots=16, main_memory=None):
         if main_memory is None:
-            main_memory = initialize_memory()
-            self.main_memory = main_memory
+            self.main_memory = initialize_memory()
 
-        self.slots = slots
-        self.cache = [Record(slot=i, valid=0, tag=0, data=Block()) for i in range(0, slots)]
+        self.number_of_slots = number_of_slots
+        self.cache_slots = [Record(slot=i, valid=0, tag=0, block_data=Block()) for i in range(0, number_of_slots)]
         print("Cache initialized")
 
     def get_record_by_slot(self, slot):
-        for record in self.cache:
+        for record in self.cache_slots:
             if record.slot == slot:
                 return record
         return None
@@ -50,113 +54,89 @@ class Cache:
     def get_block_from_memory(self, address):
         offset = get_offset(address)
         block_starting_address = address - offset
-        block_end_address = block_starting_address + 16
+        # Block size is 16 bytes so we add 15 to the starting address to get the end address and add 1 to include it
+        block_end_address = block_starting_address + 15 + 1
         block = self.main_memory[block_starting_address:block_end_address]
         return block
 
     def read(self, address):
-        offset = get_offset(address)
-        slot = get_slot(address)
-        tag = get_tag(address)
+        tag, slot, offset = get_tag_slot_offset(address)
 
-        record = self.get_record_by_slot(slot)
-        if record.tag == tag and record.valid == 1:
-            cache_hit_str = "Cache hit"
+        record_in_cache = self.get_record_by_slot(slot)
+        cache_hit = (record_in_cache.tag == tag and record_in_cache.valid == 1)
+        if cache_hit:
+            print(f"Read {hex(address)} -> tag={hex(tag)}, slot={hex(slot)}, offset={hex(offset)} (Cache hit)")
+            print("Data: ", hex(record_in_cache.block_data.block[offset]))
         else:
-            cache_hit_str = "Cache miss"
+            print(f"Read {hex(address)} -> tag={hex(tag)}, slot={hex(slot)}, offset={hex(offset)} (Cache miss)")
 
-        print(f"Read {hex(address)} -> tag={hex(tag)}, slot={hex(slot)}, offset={hex(offset)} ({cache_hit_str})")
-
-        if cache_hit_str == "Cache hit":
-            print("Data: ", hex(record.data.block[offset]))
-            return
-
-        else:
-
-            if record.dirty:
+            if record_in_cache.dirty:
                 print("Dirty bit found in slot: ", hex(slot))
-                self.write_block_to_memory(address, record.data.block)
-                record.dirty = 0
+                address_to_write_old_block = get_address_to_write(record_in_cache.tag, slot, offset)
+                self.write_block_to_memory(address_to_write_old_block, record_in_cache.block_data.block)
+                record_in_cache.dirty = 0
 
             print(f"Retrieving block starting at {hex(address - offset)} from memory...")
             block_to_add_to_cache = Block(block=self.get_block_from_memory(address))
-            record.data = block_to_add_to_cache
-            record.tag = tag
-            record.valid = 1
-            print("Data: ", hex(record.data.block[offset]))
-            return
+            record_in_cache.block_data = block_to_add_to_cache
+            record_in_cache.tag = tag
+            record_in_cache.valid = 1
+            print("Data: ", hex(record_in_cache.block_data.block[offset]))
 
     def write_block_to_memory(self, address, data):
-        print(f"Writing block to memory at {hex(address)}")
         offset = get_offset(address)
         block_starting_address = address - offset
         block_end_address = block_starting_address + 16
+        print(f"Writing block {hex(block_starting_address)} to memory...")
         self.main_memory[block_starting_address:block_end_address] = data
 
     def write(self, address, data):
-        tag = get_tag(address)
-        slot = get_slot(address)
-        offset = get_offset(address)
+        tag, slot, offset = get_tag_slot_offset(address)
+        data_hex_str = hex(data)[2:]
+        record = self.get_record_by_slot(slot)
 
         print(f"Write {hex(data)} to {hex(address)} -> tag: ", hex(tag), "slot: ", hex(slot), "offset: ", hex(offset))
 
-        record = self.get_record_by_slot(slot)
-
-        data_hex_str = hex(data)[2:]
+        def add_block_to_cache_record_from_memory(record, block_address):
+            block_to_add_to_cache = Block(block=self.get_block_from_memory(block_address))
+            record.block_data = block_to_add_to_cache
+            record.tag = tag
+            record.valid = 1
+            record.block_data.block[offset] = data
+            record.dirty = 1
+            print(f"Data: {data_hex_str} written to cache")
 
         if record.tag == tag and record.valid == 1:
             print("Cache hit")
-            record.data.block[offset] = data
+            record.block_data.block[offset] = data
             record.dirty = 1
             print(f"Data: {data_hex_str} written to cache")
-            return
+
         elif record.tag != tag and record.dirty == 1:
             print("Cache miss")
             print("Dirty bit found in slot: ", hex(slot))
             print("Writing old record to memory...")
 
             # Write the old record to memory
-            block = record.data.block
-
-            # Finding the address to write to
-            comp = [record.tag, slot, offset]
-            comp = [str(hex(i))[2:] for i in comp]
-            address_to_write = "".join(comp)
-            address_to_write = int(address_to_write, 16)
-
-            self.write_block_to_memory(address_to_write, block)
-
+            old_block = record.block_data.block
+            address_to_write_old_block = get_address_to_write(record.tag, slot, offset)
+            self.write_block_to_memory(address_to_write_old_block, old_block)
             print("Old record written to memory")
+
             record.dirty = 0
-
-            print("Now retrieving correct block from memory...")
-
-            # Now retrieve the required block from memory
-            block_to_add_to_cache = Block(block=self.get_block_from_memory(address))
-            record.data = block_to_add_to_cache
-            record.tag = tag
-            record.valid = 1
-            record.data.block[offset] = data
-            record.dirty = 1
-            print(f"Data: {data_hex_str} written to cache")
-
+            print("Now retrieving block starting at ", hex(address - offset), " from memory...")
+            add_block_to_cache_record_from_memory(record, address)
 
         else:
             print("Cache miss")
-            print("Retrieving from memory...")
+            print("Retrieving block starting at ", hex(address - offset), " from memory...")
             record = self.get_record_by_slot(slot)
             # Now retrieve the required block from memory
-            block_to_add_to_cache = Block(block=self.get_block_from_memory(address))
-            record.data = block_to_add_to_cache
-            record.tag = tag
-            record.valid = 1
-            record.data.block[offset] = data
-            record.dirty = 1
-            print(f"Data; {data_hex_str} written to cache")
+            add_block_to_cache_record_from_memory(record, address)
 
     def display(self):
-        df = pd.DataFrame([vars(i) for i in self.cache])
-        column_names = ["slot", "valid", "tag", "dirty", " ", "data"]
+        df = pd.DataFrame([vars(i) for i in self.cache_slots])
+        column_names = ["slot", "valid", "tag", "dirty", " ", "block_data"]
         # Add a column with no data between tag and data
         df[" "] = ""
 
@@ -171,8 +151,8 @@ class Cache:
 
 
 class Record:
-    def __init__(self, slot, valid, tag, data):
-        self.data = data
+    def __init__(self, slot, valid, tag, block_data):
+        self.block_data = block_data
         self.slot = slot
         self.tag = tag
         self.valid = valid
@@ -184,7 +164,7 @@ class Block:
         self.size = size
         if block is None:
             self.block = []
-            for i in range(0, size):
+            for _ in range(0, size):
                 self.block.append(0)
         else:
             self.block = block
@@ -218,6 +198,7 @@ def user_interface(cache):
 def user_read(cache):
     print("Read selected.")
     print("What address would you like to read? Please enter in hex")
+    print("Max tag is 7, max slot is F, max offset is F")
     address = input()
     address = int(address, 16)
     cache.read(address)
@@ -226,6 +207,7 @@ def user_read(cache):
 def user_write(cache):
     print("Write selected.")
     print("What address would you like to write to? Please enter in hex")
+    print("Max tag is 7, max slot is F, max offset is F")
     address = input()
     address = int(address, 16)
     print("What data would you like to write? Please enter in hex")
@@ -245,21 +227,9 @@ def main():
     final_test()
 
 
-def run_test():
-    cache = Cache()
-    for address in [0x7A2, 0x2E, 0x2F, 0x3D5]:
-        cache.read(address)
-        print("\n")
-    cache.display()
-    cache.write(0x7A2, 0x66)
-    cache.display()
-    cache.write(0x6A5, 0x55)
-    cache.display()
-
-
 def final_test():
     cache = Cache()
-    addresses_to_read = [0x5,0x6,0x7,0x14c,0x14d, 0x14e, 0x14f, 0x150, 0x151, 0x3A6, 0x4C3]
+    addresses_to_read = [0x5, 0x6, 0x7, 0x14c, 0x14d, 0x14e, 0x14f, 0x150, 0x151, 0x3A6, 0x4C3]
     for x in addresses_to_read:
         cache.read(address=x)
         cache.display()
@@ -272,7 +242,6 @@ def final_test():
     cache.write(0x63B, 0x7)
     cache.display()
     print("\n")
-
 
     cache.read(0x582)
     cache.display()
@@ -301,7 +270,6 @@ def final_test():
     cache.read(0x83)
     cache.display()
     print("\n")
-
 
 
 if __name__ == "__main__":
