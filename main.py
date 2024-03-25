@@ -65,29 +65,33 @@ class Cache:
         record_in_cache = self.get_record_by_slot(slot)
         cache_hit = (record_in_cache.tag == tag and record_in_cache.valid == 1)
         if cache_hit:
-            print(f"Read {hex(address)} -> tag={hex(tag)}, slot={hex(slot)}, offset={hex(offset)} (Cache hit)")
-            print("Data: ", hex(record_in_cache.block_data.block[offset]))
+            print(f"Read address {hex(address)[2:]} -> tag={hex(tag)[2:]}, slot={hex(slot)[2:]}, offset={hex(offset)[2:]} (Cache hit)")
+            print("Data: ", hex(record_in_cache.block_data.block[offset])[2:])
+            print("\n")
+
         else:
-            print(f"Read {hex(address)} -> tag={hex(tag)}, slot={hex(slot)}, offset={hex(offset)} (Cache miss)")
+            print(
+                f"Read address {hex(address)[2:]} -> tag={hex(tag)[2:]}, slot={hex(slot)[2:]}, offset={hex(offset)[2:]} (Cache miss)")
 
             if record_in_cache.dirty:
-                print("Dirty bit found in slot: ", hex(slot))
+                print("Dirty bit found in slot: ", hex(slot)[2:])
                 address_to_write_old_block = get_address_to_write(record_in_cache.tag, slot, offset)
                 self.write_block_to_memory(address_to_write_old_block, record_in_cache.block_data.block)
                 record_in_cache.dirty = 0
 
-            print(f"Retrieving block starting at {hex(address - offset)} from memory...")
+            print(f"Retrieving block starting at {hex(address - offset)[2:]} from memory...")
             block_to_add_to_cache = Block(block=self.get_block_from_memory(address))
             record_in_cache.block_data = block_to_add_to_cache
             record_in_cache.tag = tag
             record_in_cache.valid = 1
-            print("Data: ", hex(record_in_cache.block_data.block[offset]))
+            print("Data: ", hex(record_in_cache.block_data.block[offset])[2:])
+            print("\n")
 
     def write_block_to_memory(self, address, data):
         offset = get_offset(address)
         block_starting_address = address - offset
         block_end_address = block_starting_address + 16
-        print(f"Writing block {hex(block_starting_address)} to memory...")
+        print(f"Writing block {hex(block_starting_address)[2:]} to memory...")
         self.main_memory[block_starting_address:block_end_address] = data
 
     def write(self, address, data):
@@ -95,7 +99,8 @@ class Cache:
         data_hex_str = hex(data)[2:]
         record = self.get_record_by_slot(slot)
 
-        print(f"Write {hex(data)} to {hex(address)} -> tag: ", hex(tag), "slot: ", hex(slot), "offset: ", hex(offset))
+        print(f"Write {hex(data)[2:]} to address {hex(address)[2:]} -> tag: ", hex(tag)[2:], "slot: ", hex(slot)[2:], "offset: ",
+              hex(offset)[2:])
 
         def add_block_to_cache_record_from_memory(record, block_address):
             block_to_add_to_cache = Block(block=self.get_block_from_memory(block_address))
@@ -105,16 +110,19 @@ class Cache:
             record.block_data.block[offset] = data
             record.dirty = 1
             print(f"Data: {data_hex_str} written to cache")
+            print("\n")
 
         if record.tag == tag and record.valid == 1:
             print("Cache hit")
             record.block_data.block[offset] = data
             record.dirty = 1
             print(f"Data: {data_hex_str} written to cache")
+            print("\n")
+
 
         elif record.tag != tag and record.dirty == 1:
             print("Cache miss")
-            print("Dirty bit found in slot: ", hex(slot))
+            print("Dirty bit found in slot: ", hex(slot)[2:])
             print("Writing old record to memory...")
 
             # Write the old record to memory
@@ -124,12 +132,12 @@ class Cache:
             print("Old record written to memory")
 
             record.dirty = 0
-            print("Now retrieving block starting at ", hex(address - offset), " from memory...")
+            print("Now retrieving block starting at ", hex(address - offset)[2:], " from memory...")
             add_block_to_cache_record_from_memory(record, address)
 
         else:
             print("Cache miss")
-            print("Retrieving block starting at ", hex(address - offset), " from memory...")
+            print("Retrieving block starting at ", hex(address - offset)[2:], " from memory...")
             record = self.get_record_by_slot(slot)
             # Now retrieve the required block from memory
             add_block_to_cache_record_from_memory(record, address)
@@ -147,7 +155,9 @@ class Cache:
         df["tag"] = df["tag"].apply(hex)
         df["tag"] = df["tag"].apply(lambda x: x[2:])
 
+        print("Displaying cache".center(77, "-"))
         print(df)
+        print("\n")
 
 
 class Record:
@@ -232,44 +242,23 @@ def final_test():
     addresses_to_read = [0x5, 0x6, 0x7, 0x14c, 0x14d, 0x14e, 0x14f, 0x150, 0x151, 0x3A6, 0x4C3]
     for x in addresses_to_read:
         cache.read(address=x)
-        cache.display()
-        print("\n")
+
+    cache.display()
 
     cache.write(0x14c, 0x99)
-    cache.display()
-    print("\n")
-
     cache.write(0x63B, 0x7)
-    cache.display()
-    print("\n")
-
     cache.read(0x582)
     cache.display()
-    print("\n")
 
     cache.read(0x348)
-    cache.display()
-    print("\n")
-
     cache.read(0x3f)
     cache.display()
-    print("\n")
 
     cache.read(0x14b)
-    cache.display()
-    print("\n")
-
     cache.read(0x14c)
-    cache.display()
-    print("\n")
-
     cache.read(0x63f)
-    cache.display()
-    print("\n")
-
     cache.read(0x83)
     cache.display()
-    print("\n")
 
 
 if __name__ == "__main__":
